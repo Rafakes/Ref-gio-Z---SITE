@@ -8,6 +8,12 @@ interface PlayerRank {
   timeFormatted: string;
 }
 
+interface LeaderboardEntry {
+  rank?: number;
+  name: string;
+  valueSeconds: number;
+}
+
 @Component({
   selector: 'app-ranking',
   standalone: true,
@@ -169,17 +175,17 @@ export class RankingComponent implements OnInit {
 
     try {
       const battleMetricsUrl = this.buildBattleMetricsUrl();
-      const json = await this.fetchLeaderboardData(battleMetricsUrl);
+      const entries = await this.fetchLeaderboardData(battleMetricsUrl);
 
-      if (!json.data || !Array.isArray(json.data)) {
+      if (!entries.length) {
         throw new Error('Formato de dados inválido ou vazio.');
       }
 
-      const rankedData: PlayerRank[] = json.data.map((entry: any, index: number) => ({
-        rank: index + 1,
-        name: entry.attributes.name || 'Sobrevivente Desconhecido',
-        timeSeconds: entry.attributes.value,
-        timeFormatted: this.formatTime(entry.attributes.value)
+      const rankedData: PlayerRank[] = entries.map((entry, index) => ({
+        rank: entry.rank ?? index + 1,
+        name: entry.name || 'Sobrevivente Desconhecido',
+        timeSeconds: entry.valueSeconds,
+        timeFormatted: this.formatTime(entry.valueSeconds)
       }));
 
       this.players.set(rankedData);
@@ -203,14 +209,16 @@ export class RankingComponent implements OnInit {
       dateIsoStr = '2023-01-01T00:00:00Z';
     }
 
-    const targetUrl = new URL(`https://api.battlemetrics.com/servers/${this.SERVER_ID}/relationships/leaderboards/time`);
+    // O endpoint "related" retorna os recursos completos do leaderboard.
+    const targetUrl = new URL(`https://api.battlemetrics.com/servers/${this.SERVER_ID}/leaderboards/time`);
     targetUrl.searchParams.append('filter[period]', dateIsoStr);
+    targetUrl.searchParams.append('include', 'player');
     targetUrl.searchParams.append('page[size]', '50');
 
     return targetUrl.toString();
   }
 
-  private async fetchLeaderboardData(targetUrl: string): Promise<any> {
+  private async fetchLeaderboardData(targetUrl: string): Promise<LeaderboardEntry[]> {
     const attempts: Array<{ label: string; url: string }> = [
       { label: 'battlemetrics-direto', url: targetUrl },
       { label: 'proxy-codetabs', url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}` },
@@ -228,7 +236,14 @@ export class RankingComponent implements OnInit {
           continue;
         }
 
-        return await response.json();
+        const payload = await response.json();
+        const entries = this.extractLeaderboardEntries(payload);
+
+        if (entries.length) {
+          return entries;
+        }
+
+        failures.push(`${attempt.label}:sem-dados`);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'falha de rede';
         failures.push(`${attempt.label}:${message}`);
@@ -236,6 +251,52 @@ export class RankingComponent implements OnInit {
     }
 
     throw new Error(failures.join(' | '));
+  }
+
+  private extractLeaderboardEntries(payload: any): LeaderboardEntry[] {
+    const rawData = Array.isArray(payload?.data)
+      ? payload.data
+      : Array.isArray(payload?.data?.data)
+      ? payload.data.data
+      : [];
+
+    if (!rawData.length) {
+      return [];
+    }
+
+    const playersById = new Map<string, string>();
+    if (Array.isArray(payload?.included)) {
+      for (const included of payload.included) {
+        if (included?.type === 'player' && included?.id) {
+          playersById.set(String(included.id), included?.attributes?.name || 'Sobrevivente Desconhecido');
+        }
+      }
+    }
+
+    return rawData
+      .map((entry: any, index: number) => {
+        const value = Number(entry?.attributes?.value ?? entry?.meta?.value);
+        if (!Number.isFinite(value) || value < 0) {
+          return null;
+        }
+
+        const playerId = entry?.relationships?.player?.data?.id;
+        const resolvedName =
+          entry?.attributes?.name ||
+          playersById.get(String(playerId)) ||
+          entry?.meta?.name ||
+          'Sobrevivente Desconhecido';
+
+        const rank = Number(entry?.attributes?.rank ?? entry?.meta?.rank ?? index + 1);
+
+        return {
+          rank: Number.isFinite(rank) && rank > 0 ? rank : index + 1,
+          name: resolvedName,
+          valueSeconds: value
+        };
+      })
+      .filter((entry): entry is LeaderboardEntry => !!entry)
+      .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0));
   }
 
   private activateOfflineMode() {
