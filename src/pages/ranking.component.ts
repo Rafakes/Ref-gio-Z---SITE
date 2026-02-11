@@ -1,3 +1,4 @@
+
 import { Component, signal, ChangeDetectionStrategy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
@@ -6,12 +7,6 @@ interface PlayerRank {
   name: string;
   timeSeconds: number;
   timeFormatted: string;
-}
-
-interface LeaderboardEntry {
-  rank?: number;
-  name: string;
-  valueSeconds: number;
 }
 
 @Component({
@@ -74,18 +69,13 @@ interface LeaderboardEntry {
                     
                     <!-- Offline Warning Banner -->
                     @if (isOfflineMode()) {
-                        <div class="bg-yellow-900/20 border border-yellow-700 p-3 mb-4 flex flex-col md:flex-row items-start md:items-center justify-between px-4 gap-2">
+                        <div class="bg-yellow-900/20 border border-yellow-700 p-2 mb-4 flex items-center justify-between px-4">
                             <span class="font-mono text-yellow-500 text-xs uppercase flex items-center gap-2">
                                 <span class="w-2 h-2 bg-yellow-500 rounded-full"></span>
-                                MODO OFFLINE ATIVADO - EXIBINDO DADOS LOCAIS
+                                MODO OFFLINE ATIVADO - EXIBINDO DADOS EM CACHE/ARQUIVO
                             </span>
                             <button (click)="fetchData()" class="text-xs font-mono underline text-yellow-500 hover:text-white">TENTAR RECONEXÃO</button>
                         </div>
-                        @if (lastError()) {
-                            <p class="font-mono text-zinc-500 text-[11px] uppercase mb-3 break-words">
-                                FALHA DE CONEXÃO: {{ lastError() }}
-                            </p>
-                        }
                     }
 
                     <!-- Table Header -->
@@ -134,7 +124,7 @@ interface LeaderboardEntry {
 
                 <div class="mt-8 text-center flex flex-col items-center gap-2">
                     <p class="font-mono text-zinc-600 text-xs uppercase">
-                        {{ isOfflineMode() ? 'SITE ESTÁTICO: DADOS LOCAIS. PARA DADOS AO VIVO USE UM BACKEND/PROXY PRÓPRIO.' : 'DADOS SINCRONIZADOS VIA BATTLEMETRICS API' }}
+                        {{ isOfflineMode() ? 'DADOS DE ARQUIVO (SIMULAÇÃO)' : 'DADOS SINCRONIZADOS VIA BATTLEMETRICS API' }}
                     </p>
                     <a href="https://www.battlemetrics.com/servers/zomboid/36434642/leaderboard" 
                        target="_blank"
@@ -149,13 +139,13 @@ interface LeaderboardEntry {
   `
 })
 export class RankingComponent implements OnInit {
+  
   private readonly SERVER_ID = '36434642';
-
+  
   currentPeriod = signal<'30d' | 'all'>('30d');
   players = signal<PlayerRank[]>([]);
   isLoading = signal<boolean>(true);
   isOfflineMode = signal<boolean>(false);
-  lastError = signal<string>('');
 
   ngOnInit() {
     this.fetchData();
@@ -170,156 +160,80 @@ export class RankingComponent implements OnInit {
   async fetchData() {
     this.isLoading.set(true);
     this.isOfflineMode.set(false);
-    this.lastError.set('');
     this.players.set([]);
 
     try {
-      const battleMetricsUrl = this.buildBattleMetricsUrl();
-      const entries = await this.fetchLeaderboardData(battleMetricsUrl);
+      // Calculate date
+      const now = new Date();
+      let dateIsoStr: string;
 
-      if (!entries.length) {
-        throw new Error('Formato de dados inválido ou vazio.');
+      if (this.currentPeriod() === '30d') {
+        const pastDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        dateIsoStr = pastDate.toISOString().split('.')[0] + 'Z';
+      } else {
+        dateIsoStr = '2023-01-01T00:00:00Z';
       }
 
-      const rankedData: PlayerRank[] = entries.map((entry, index) => ({
-        rank: entry.rank ?? index + 1,
-        name: entry.name || 'Sobrevivente Desconhecido',
-        timeSeconds: entry.valueSeconds,
-        timeFormatted: this.formatTime(entry.valueSeconds)
+      // 1. Build Original URL
+      const targetUrl = new URL(`https://api.battlemetrics.com/servers/${this.SERVER_ID}/relationships/leaderboards/time`);
+      targetUrl.searchParams.append('filter[period]', dateIsoStr);
+      targetUrl.searchParams.append('page[size]', '50');
+
+      // 2. Wrap in CORS Proxy (CodeTabs is generally more robust for this specific API)
+      const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl.toString())}`;
+
+      const response = await fetch(proxyUrl);
+      
+      if (!response.ok) {
+        throw new Error(`Status da API (Proxy): ${response.status}`);
+      }
+
+      const json = await response.json();
+      
+      if (!json.data || !Array.isArray(json.data)) {
+        throw new Error('Formato de dados inválido ou vazio.');
+      }
+      
+      const rankedData: PlayerRank[] = json.data.map((entry: any, index: number) => ({
+        rank: index + 1,
+        name: entry.attributes.name || 'Sobrevivente Desconhecido', 
+        timeSeconds: entry.attributes.value,
+        timeFormatted: this.formatTime(entry.attributes.value)
       }));
 
       this.players.set(rankedData);
-    } catch (error) {
-      console.warn('Falha na conexão com API BattleMetrics, ativando modo offline:', error);
-      this.lastError.set(error instanceof Error ? error.message : 'Erro desconhecido ao consultar ranking.');
+
+    } catch (err: any) {
+      console.warn('Falha na conexão com API BattleMetrics, ativando modo offline:', err);
       this.activateOfflineMode();
     } finally {
       this.isLoading.set(false);
     }
   }
 
-  private buildBattleMetricsUrl(): string {
-    const now = new Date();
-    let dateIsoStr: string;
-
-    if (this.currentPeriod() === '30d') {
-      const pastDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      dateIsoStr = `${pastDate.toISOString().split('.')[0]}Z`;
-    } else {
-      dateIsoStr = '2023-01-01T00:00:00Z';
-    }
-
-    // O endpoint "related" retorna os recursos completos do leaderboard.
-    const targetUrl = new URL(`https://api.battlemetrics.com/servers/${this.SERVER_ID}/leaderboards/time`);
-    targetUrl.searchParams.append('filter[period]', dateIsoStr);
-    targetUrl.searchParams.append('include', 'player');
-    targetUrl.searchParams.append('page[size]', '50');
-
-    return targetUrl.toString();
-  }
-
-  private async fetchLeaderboardData(targetUrl: string): Promise<LeaderboardEntry[]> {
-    const attempts: Array<{ label: string; url: string }> = [
-      { label: 'battlemetrics-direto', url: targetUrl },
-      { label: 'proxy-codetabs', url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}` },
-      { label: 'proxy-allorigins', url: `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}` }
-    ];
-
-    const failures: string[] = [];
-
-    for (const attempt of attempts) {
-      try {
-        const response = await fetch(attempt.url);
-
-        if (!response.ok) {
-          failures.push(`${attempt.label}:${response.status}`);
-          continue;
-        }
-
-        const payload = await response.json();
-        const entries = this.extractLeaderboardEntries(payload);
-
-        if (entries.length) {
-          return entries;
-        }
-
-        failures.push(`${attempt.label}:sem-dados`);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'falha de rede';
-        failures.push(`${attempt.label}:${message}`);
-      }
-    }
-
-    throw new Error(failures.join(' | '));
-  }
-
-  private extractLeaderboardEntries(payload: any): LeaderboardEntry[] {
-    const rawData = Array.isArray(payload?.data)
-      ? payload.data
-      : Array.isArray(payload?.data?.data)
-      ? payload.data.data
-      : [];
-
-    if (!rawData.length) {
-      return [];
-    }
-
-    const playersById = new Map<string, string>();
-    if (Array.isArray(payload?.included)) {
-      for (const included of payload.included) {
-        if (included?.type === 'player' && included?.id) {
-          playersById.set(String(included.id), included?.attributes?.name || 'Sobrevivente Desconhecido');
-        }
-      }
-    }
-
-    return rawData
-      .map((entry: any, index: number) => {
-        const value = Number(entry?.attributes?.value ?? entry?.meta?.value);
-        if (!Number.isFinite(value) || value < 0) {
-          return null;
-        }
-
-        const playerId = entry?.relationships?.player?.data?.id;
-        const resolvedName =
-          entry?.attributes?.name ||
-          playersById.get(String(playerId)) ||
-          entry?.meta?.name ||
-          'Sobrevivente Desconhecido';
-
-        const rank = Number(entry?.attributes?.rank ?? entry?.meta?.rank ?? index + 1);
-
-        return {
-          rank: Number.isFinite(rank) && rank > 0 ? rank : index + 1,
-          name: resolvedName,
-          valueSeconds: value
-        };
-      })
-      .filter((entry): entry is LeaderboardEntry => !!entry)
-      .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0));
-  }
-
   private activateOfflineMode() {
     this.isOfflineMode.set(true);
-
+    
+    // Mock Data simulating a cached leaderboard state
     const mockData: PlayerRank[] = [
-      { rank: 1, name: 'Commander Shepard', timeSeconds: 360000, timeFormatted: '100h 0m' },
-      { rank: 2, name: 'Rick Grimes', timeSeconds: 342000, timeFormatted: '95h 0m' },
-      { rank: 3, name: 'Ellie Williams', timeSeconds: 324000, timeFormatted: '90h 0m' },
-      { rank: 4, name: 'Joel Miller', timeSeconds: 300000, timeFormatted: '83h 20m' },
-      { rank: 5, name: 'Leon S. Kennedy', timeSeconds: 280000, timeFormatted: '77h 46m' },
-      { rank: 6, name: 'Jill Valentine', timeSeconds: 250000, timeFormatted: '69h 26m' },
-      { rank: 7, name: 'Arthur Morgan', timeSeconds: 200000, timeFormatted: '55h 33m' },
-      { rank: 8, name: 'Survivor_01', timeSeconds: 150000, timeFormatted: '41h 40m' },
-      { rank: 9, name: 'Daryl Dixon', timeSeconds: 120000, timeFormatted: '33h 20m' },
-      { rank: 10, name: 'Michonne', timeSeconds: 100000, timeFormatted: '27h 46m' }
+        { rank: 1, name: "Commander Shepard", timeSeconds: 360000, timeFormatted: "100h 0m" },
+        { rank: 2, name: "Rick Grimes", timeSeconds: 342000, timeFormatted: "95h 0m" },
+        { rank: 3, name: "Ellie Williams", timeSeconds: 324000, timeFormatted: "90h 0m" },
+        { rank: 4, name: "Joel Miller", timeSeconds: 300000, timeFormatted: "83h 20m" },
+        { rank: 5, name: "Leon S. Kennedy", timeSeconds: 280000, timeFormatted: "77h 46m" },
+        { rank: 6, name: "Jill Valentine", timeSeconds: 250000, timeFormatted: "69h 26m" },
+        { rank: 7, name: "Arthur Morgan", timeSeconds: 200000, timeFormatted: "55h 33m" },
+        { rank: 8, name: "Survivor_01", timeSeconds: 150000, timeFormatted: "41h 40m" },
+        { rank: 9, name: "Daryl Dixon", timeSeconds: 120000, timeFormatted: "33h 20m" },
+        { rank: 10, name: "Michonne", timeSeconds: 100000, timeFormatted: "27h 46m" }
     ];
 
+    // If "All time", multiply values slightly for flavor
     if (this.currentPeriod() === 'all') {
-      mockData.forEach(player => {
-        player.timeSeconds *= 2.5;
-        player.timeFormatted = this.formatTime(player.timeSeconds);
-      });
+        mockData.forEach(p => {
+            p.timeSeconds *= 2.5;
+            p.timeFormatted = this.formatTime(p.timeSeconds);
+        });
     }
 
     this.players.set(mockData);
@@ -328,11 +242,10 @@ export class RankingComponent implements OnInit {
   private formatTime(seconds: number): string {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
-
+    
     if (hours > 0) {
       return `${hours}h ${minutes}m`;
     }
-
     return `${minutes}m`;
   }
 }
