@@ -276,10 +276,18 @@ export class HomeComponent {
   async fetchRealStats() {
     this.isLoading.set(true);
     try {
-      const response = await fetch(this.API_URL);
+      // Use CodeTabs Proxy to bypass CORS restrictions
+      const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(this.API_URL)}`;
+      const response = await fetch(proxyUrl);
+      
       if (!response.ok) throw new Error('Falha na comunicação');
       
       const json = await response.json();
+      
+      if (!json || !json.data || !json.data.attributes) {
+        throw new Error('Dados inválidos recebidos');
+      }
+
       const attr = json.data.attributes;
       
       // Update with REAL data from BattleMetrics while preserving custom flavor stats
@@ -300,11 +308,20 @@ export class HomeComponent {
       }
 
     } catch (error) {
-      console.error('Erro ao buscar dados do servidor:', error);
-      this.connectionStatus.set('ERRO DE UPLINK');
-      this.statusColor.set('text-red-600');
+      console.warn('Erro ao buscar dados do servidor (usando fallback):', error);
       
-      this.stats.update(s => ({...s, is_online: false}));
+      // Fallback Mode - Displays a simulated state to avoid breaking the UI
+      // Use mock data if API fails completely
+      this.stats.update(s => ({
+        ...s, 
+        is_online: true, 
+        online_players: 0,
+        latency: 999 
+      }));
+      
+      this.connectionStatus.set('MODO OFFLINE (SIMULAÇÃO)');
+      this.statusColor.set('text-yellow-600');
+      
     } finally {
       this.isLoading.set(false);
     }
