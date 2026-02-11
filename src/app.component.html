@@ -1,0 +1,87 @@
+
+<main class="min-h-screen bg-[#050505] text-zinc-100 flex flex-col relative">
+
+  <!-- Fixed Navigation -->
+  <nav class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-8 py-6 bg-[#050505]/80 backdrop-blur-sm border-b border-zinc-800">
+    <div class="text-3xl font-bold tracking-tighter uppercase glitch-hover cursor-pointer text-white" routerLink="/">
+      REFÚGIO_Z
+    </div>
+    
+    <!-- Desktop Menu -->
+    <div class="hidden md:flex gap-8 font-mono text-base text-zinc-300">
+      <a routerLink="/" routerLinkActive="text-red-600 line-through" [routerLinkActiveOptions]="{exact: true}" class="hover:text-white transition-colors cursor-pointer">HOME</a>
+      <a routerLink="/mapa" routerLinkActive="text-red-600 line-through" class="hover:text-white transition-colors cursor-pointer">MAPA</a>
+      <a routerLink="/centro-comercial" routerLinkActive="text-red-600 line-through" class="hover:text-white transition-colors cursor-pointer">CENTRO COMERCIAL</a>
+      <a routerLink="/agenda" routerLinkActive="text-red-600 line-through" class="hover:text-white transition-colors cursor-pointer">AGENDA</a>
+      <a routerLink="/ranking" routerLinkActive="text-red-600 line-through" class="hover:text-white transition-colors cursor-pointer">RANKING</a>
+      <a routerLink="/youtube" routerLinkActive="text-red-600 line-through" class="hover:text-white transition-colors cursor-pointer">YOUTUBE</a>
+    </div>
+
+    <!-- Mobile Menu Button -->
+    <div class="md:hidden text-white">
+      <button class="text-2xl focus:outline-none" (click)="toggleMobileMenu()">
+        @if (isMobileMenuOpen()) {
+          ✕
+        } @else {
+          ☰
+        }
+      </button>
+    </div>
+  </nav>
+
+  <!-- Mobile Menu Overlay -->
+  @if (isMobileMenuOpen()) {
+    <div class="fixed inset-0 z-40 bg-black/95 backdrop-blur-lg flex flex-col justify-center items-center gap-8 md:hidden font-mono text-xl animate-fade-in">
+        <a routerLink="/" (click)="closeMobileMenu()" class="uppercase hover:text-red-600">Home</a>
+        <a routerLink="/mapa" (click)="closeMobileMenu()" class="uppercase hover:text-red-600">Mapa</a>
+        <a routerLink="/centro-comercial" (click)="closeMobileMenu()" class="uppercase hover:text-red-600">Centro Comercial</a>
+        <a routerLink="/agenda" (click)="closeMobileMenu()" class="uppercase hover:text-red-600">Agenda</a>
+        <a routerLink="/ranking" (click)="closeMobileMenu()" class="uppercase hover:text-red-600">Ranking</a>
+        <a routerLink="/youtube" (click)="closeMobileMenu()" class="uppercase hover:text-red-600">Youtube</a>
+    </div>
+  }
+
+  <!-- Main Content Outlet -->
+  <router-outlet></router-outlet>
+
+  <!-- Footer -->
+  <footer class="bg-[#050505] text-white py-20 px-4 border-t border-zinc-800 mt-auto">
+    <div class="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12">
+      
+      <div class="flex flex-col justify-between">
+        <h2 class="text-3xl font-bold uppercase tracking-tight mb-4">Refúgio Z</h2>
+        <p class="text-zinc-500 font-mono text-sm">
+          © 2024. SOBREVIVENDO UM DIA DE CADA VEZ.
+        </p>
+      </div>
+
+      <div class="flex flex-col gap-2 font-mono text-sm">
+        <h4 class="text-zinc-500 uppercase mb-2">Coordenadas</h4>
+        <p>RUA DAS SOMBRAS, 42</p>
+        <p>SETOR INDUSTRIAL 7</p>
+        <p>LOUSVILLE- KY</p>
+      </div>
+
+      <div class="flex flex-col gap-2 font-mono text-sm">
+        <h4 class="text-zinc-500 uppercase mb-2">Horários</h4>
+        <p>TODOS: 24H</p>
+      </div>
+
+      <div class="flex flex-col gap-4">
+         <h4 class="text-zinc-500 font-mono text-sm uppercase">Inscreva-se</h4>
+         <div class="flex border-b border-zinc-700 pb-2">
+           <input type="email" placeholder="SEU EMAIL" class="bg-transparent w-full outline-none font-mono uppercase text-sm placeholder-zinc-700 text-white">
+           <button class="text-red-600 hover:text-white transition-colors">→</button>
+         </div>
+      </div>
+
+    </div>
+    
+    <div class="max-w-7xl mx-auto mt-20 text-center md:text-left">
+      <h1 class="text-[12vw] leading-none font-bold text-zinc-900 select-none pointer-events-none uppercase">
+        Refúgio Z
+      </h1>
+    </div>
+  </footer>
+
+</main>
